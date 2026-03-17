@@ -19,6 +19,8 @@ if(AC_CORE_WITH_OPENCL)
     generate_opencl_kernel_header(${CORE_SOURCE_DIR}/src/processor/opencl/CommonKernel.cl ${CORE_BINARY_DIR}/include/AC/Core/Processor/OpenCL/CommonKernel.hpp Common)
     generate_opencl_kernel_header(${CORE_SOURCE_DIR}/src/processor/opencl/ACNetKernel.cl ${CORE_BINARY_DIR}/include/AC/Core/Processor/OpenCL/ACNetKernel.hpp ACNet)
     generate_opencl_kernel_header(${CORE_SOURCE_DIR}/src/processor/opencl/ARNetKernel.cl ${CORE_BINARY_DIR}/include/AC/Core/Processor/OpenCL/ARNetKernel.hpp ARNet)
+    generate_opencl_kernel_header(${CORE_SOURCE_DIR}/src/processor/opencl/ArtCNNF16Kernel.cl ${CORE_BINARY_DIR}/include/AC/Core/Processor/OpenCL/ArtCNNF16Kernel.hpp ArtCNNF16)
+    generate_opencl_kernel_header(${CORE_SOURCE_DIR}/src/processor/opencl/ArtCNNF32Kernel.cl ${CORE_BINARY_DIR}/include/AC/Core/Processor/OpenCL/ArtCNNF32Kernel.hpp ArtCNNF32)
 endif()
 include(${CMAKE_DIR}/GenImageResizeSIMD.cmake)
 
@@ -77,6 +79,11 @@ target_include_directories(ac PUBLIC
     $<BUILD_INTERFACE:${CORE_BINARY_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
+
+# cuda 12.9 and newer with VisualStudio need this.
+if (AC_CORE_WITH_CUDA AND CMAKE_CXX_COMPILER_ID MATCHES "MSVC" AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER 12.8)
+    set_source_files_properties(${CORE_SOURCE_DIR}/src/processor/cuda/Kernel.cu PROPERTIES COMPILE_OPTIONS "-Xcompiler=/Zc:preprocessor")
+endif()
 
 # We don't need setting any cpu arch flag for MSVC, setting it may actually degrade performance.
 # But we must set cpu arch flag for ClangCL.
