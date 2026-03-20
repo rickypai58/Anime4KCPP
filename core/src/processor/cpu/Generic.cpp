@@ -1,11 +1,47 @@
 #include <array>
+#include <type_traits>
 
 #include "AC/Core/Image.hpp"
 #include "AC/Core/Util.hpp"
 
 namespace ac::core::cpu
 {
-    template <typename IN, int cin, int cout, typename ActiveFunc, typename... ResidualArgs>
+    template <typename IN, int cin, int cout, bool postactive = false, typename ActiveFunc, typename... ResidualArgs>
+    inline void conv1x1_generic(const Image& src, Image& dst, const float* const kernels, const float* const biases, ActiveFunc&& activeFunc, ResidualArgs&& ...residualArg)
+    {
+        [[maybe_unused]] const std::array<float, sizeof...(ResidualArgs)> scales{ residualArg.scale... };
+
+        util::parallelFor(0, src.height(), [&](const int i) {
+            for (int j = 0; j < src.width(); j++)
+            {
+                [[maybe_unused]] const std::array<const float*, sizeof...(ResidualArgs)> iptrs{ static_cast<const float*>(residualArg.image.ptr(j, i))... };
+
+                auto out = static_cast<float*>(dst.ptr(j, i));
+
+                auto r = static_cast<const IN*>(src.ptr(j, i));
+
+                for (int n = 0; n < cout; n++)
+                {
+                    auto k = kernels + n * cin;
+
+                    float sum = biases[n];
+
+                    for (int c = 0; c < cin; c++) sum += toFloat(r[c]) * k[c];
+
+                    if constexpr (!postactive) sum = activeFunc(sum, n);
+
+                    if constexpr (sizeof...(ResidualArgs))
+                        for (int idx = 0; idx < sizeof...(ResidualArgs); idx++)
+                            sum = sum * scales[idx] + iptrs[idx][n];
+
+                    if constexpr (postactive) sum = activeFunc(sum, n);
+
+                    out[n] = sum;
+                }
+            }
+        });
+    }
+    template <typename IN, int cin, int cout, bool postactive = false, typename ActiveFunc, typename... ResidualArgs>
     inline void conv3x3_generic(const Image& src, Image& dst, const float* const kernels, const float* const biases, ActiveFunc&& activeFunc, ResidualArgs&& ...residualArg)
     {
         [[maybe_unused]] const std::array<float, sizeof...(ResidualArgs)> scales{ residualArg.scale... };
@@ -50,22 +86,69 @@ namespace ac::core::cpu
                     for (int c = 0; c < cin; c++)
                     {
                         sum +=
-                            toFloat<IN>(r0[c]) * k0[c] +
-                            toFloat<IN>(r1[c]) * k1[c] +
-                            toFloat<IN>(r2[c]) * k2[c] +
-                            toFloat<IN>(r3[c]) * k3[c] +
-                            toFloat<IN>(r4[c]) * k4[c] +
-                            toFloat<IN>(r5[c]) * k5[c] +
-                            toFloat<IN>(r6[c]) * k6[c] +
-                            toFloat<IN>(r7[c]) * k7[c] +
-                            toFloat<IN>(r8[c]) * k8[c];
+                            toFloat(r0[c]) * k0[c] +
+                            toFloat(r1[c]) * k1[c] +
+                            toFloat(r2[c]) * k2[c] +
+                            toFloat(r3[c]) * k3[c] +
+                            toFloat(r4[c]) * k4[c] +
+                            toFloat(r5[c]) * k5[c] +
+                            toFloat(r6[c]) * k6[c] +
+                            toFloat(r7[c]) * k7[c] +
+                            toFloat(r8[c]) * k8[c];
                     }
+
+                    if constexpr (!postactive) sum = activeFunc(sum, n);
 
                     if constexpr (sizeof...(ResidualArgs))
                         for (int idx = 0; idx < sizeof...(ResidualArgs); idx++)
                             sum = sum * scales[idx] + iptrs[idx][n];
 
-                    out[n] = activeFunc(sum);
+                    if constexpr (postactive) sum = activeFunc(sum, n);
+
+                    out[n] = sum;
+                }
+            }
+        });
+    }
+    template <typename IN, int cin, int cout, bool postactive = false, typename ActiveFunc, typename... ResidualArgs>
+    inline void conv5x5_generic(const Image& src, Image& dst, const float* const kernels, const float* const biases, ActiveFunc&& activeFunc, ResidualArgs&& ...residualArg)
+    {
+        [[maybe_unused]] const std::array<float, sizeof...(ResidualArgs)> scales{ residualArg.scale... };
+
+        util::parallelFor(0, src.height(), [&](const int i) {
+            int ioffsets[5] = { i > 1 ? -2 : (i > 0 ? -1 : 0) , i > 0 ? -1 : 0 , 0, i < src.height() - 1 ? 1 : 0, i < src.height() - 2 ? 2 : (i < src.height() - 1 ? 1 : 0)};
+
+            for (int j = 0; j < src.width(); j++)
+            {
+                [[maybe_unused]] const std::array<const float*, sizeof...(ResidualArgs)> iptrs{ static_cast<const float*>(residualArg.image.ptr(j, i))... };
+
+                auto out = static_cast<float*>(dst.ptr(j, i));
+
+                int joffsets[5] = { j > 1 ? -2 : (j > 0 ? -1 : 0), j > 0 ? -1 : 0, 0, j < src.width() - 1 ? 1 : 0 ,j < src.width() - 2 ? 2 : (j < src.width() - 1 ? 1 : 0)};
+
+                for (int n = 0; n < cout; n++)
+                {
+                    float sum = biases[n];
+
+                    for (int in = 0; in < 5; in++)
+                    {
+                        for (int jn = 0; jn < 5; jn++)
+                        {
+                            auto r = static_cast<const IN*>(src.ptr(j + joffsets[jn], i + ioffsets[in]));
+                            auto k = kernels + n * cin * 25 + cin * (in * 5 + jn);
+                            for (int c = 0; c < cin; c++) sum += toFloat(r[c]) * k[c];
+                        }
+                    }
+
+                    if constexpr (!postactive) sum = activeFunc(sum, n);
+
+                    if constexpr (sizeof...(ResidualArgs))
+                        for (int idx = 0; idx < sizeof...(ResidualArgs); idx++)
+                            sum = sum * scales[idx] + iptrs[idx][n];
+
+                    if constexpr (postactive) sum = activeFunc(sum, n);
+
+                    out[n] = sum;
                 }
             }
         });
@@ -83,7 +166,7 @@ namespace ac::core::cpu
             {
                 auto k = kernels + n * cin * 4 + cin * index;
                 float sum = 0.0f;
-                for (int c = 0; c < cin; c++) sum += toFloat<IN>(in[c]) * k[c];
+                for (int c = 0; c < cin; c++) sum += toFloat(in[c]) * k[c];
                 out[n] = fromFloat<OUT>(sum);
             }
         }, src, dst);
@@ -104,7 +187,7 @@ namespace ac::core::cpu
 
                 auto index = (i % upscale) * upscale + (j % upscale);
 
-                for (int n = 0; n < cout; n++) out[n] = fromFloat<OUT>(toFloat<IN>(in[n * group + index]));
+                for (int n = 0; n < cout; n++) out[n] = fromFloat<OUT>(toFloat(in[n * group + index]));
             }
         }
     }
@@ -153,18 +236,106 @@ namespace ac::core::cpu
                     for (int c = 0; c < cin; c++)
                     {
                         sum +=
-                            toFloat<IN>(r0[c]) * k0[c] +
-                            toFloat<IN>(r1[c]) * k1[c] +
-                            toFloat<IN>(r2[c]) * k2[c] +
-                            toFloat<IN>(r3[c]) * k3[c] +
-                            toFloat<IN>(r4[c]) * k4[c] +
-                            toFloat<IN>(r5[c]) * k5[c] +
-                            toFloat<IN>(r6[c]) * k6[c] +
-                            toFloat<IN>(r7[c]) * k7[c] +
-                            toFloat<IN>(r8[c]) * k8[c];
+                            toFloat(r0[c]) * k0[c] +
+                            toFloat(r1[c]) * k1[c] +
+                            toFloat(r2[c]) * k2[c] +
+                            toFloat(r3[c]) * k3[c] +
+                            toFloat(r4[c]) * k4[c] +
+                            toFloat(r5[c]) * k5[c] +
+                            toFloat(r6[c]) * k6[c] +
+                            toFloat(r7[c]) * k7[c] +
+                            toFloat(r8[c]) * k8[c];
                     }
 
                     *static_cast<OUT*>(dst.ptr(dstX + (n & 1), dstY + (n >> 1))) = fromFloat<OUT>(sum);
+                }
+            }
+        });
+    }
+
+    template <typename IN, int cin, int ctemp, int cout, bool postactive3x3 = false, bool postactive1x1 = false, typename ActiveFunc3x3, typename ResidualArg3x3, typename ActiveFunc1x1, typename ResidualArg1x1>
+    inline void conv3x3_conv1x1_generic(
+        const Image& src, Image& dst,
+        const float* const kernels3x3, const float* const biases3x3, ActiveFunc3x3&& activeFunc3x3, ResidualArg3x3&& residualArg3x3,
+        const float* const kernels1x1, const float* const biases1x1, ActiveFunc1x1&& activeFunc1x1, ResidualArg1x1&& residualArg1x1)
+    {
+        util::parallelFor(0, src.height(), [&](const int i) {
+            auto tp = i > 0 ? 1 : 0;
+            auto bp = i < src.height() - 1 ? 1 : 0;
+
+            for (int j = 0; j < src.width(); j++)
+            {
+                auto out = static_cast<float*>(dst.ptr(j, i));
+
+                float buffer[ctemp]{};
+
+                auto lp = j > 0 ? 1 : 0;
+                auto rp = j < src.width() - 1 ? 1 : 0;
+
+                auto r0 = static_cast<const IN*>(src.ptr(j - lp, i - tp));
+                auto r1 = static_cast<const IN*>(src.ptr(j     , i - tp));
+                auto r2 = static_cast<const IN*>(src.ptr(j + rp, i - tp));
+                auto r3 = static_cast<const IN*>(src.ptr(j - lp, i     ));
+                auto r4 = static_cast<const IN*>(src.ptr(j     , i     ));
+                auto r5 = static_cast<const IN*>(src.ptr(j + rp, i     ));
+                auto r6 = static_cast<const IN*>(src.ptr(j - lp, i + bp));
+                auto r7 = static_cast<const IN*>(src.ptr(j     , i + bp));
+                auto r8 = static_cast<const IN*>(src.ptr(j + rp, i + bp));
+
+                for (int n = 0; n < ctemp; n++)
+                {
+                    auto k0 = kernels3x3 + n * cin * 9 + cin * 0;
+                    auto k1 = kernels3x3 + n * cin * 9 + cin * 1;
+                    auto k2 = kernels3x3 + n * cin * 9 + cin * 2;
+                    auto k3 = kernels3x3 + n * cin * 9 + cin * 3;
+                    auto k4 = kernels3x3 + n * cin * 9 + cin * 4;
+                    auto k5 = kernels3x3 + n * cin * 9 + cin * 5;
+                    auto k6 = kernels3x3 + n * cin * 9 + cin * 6;
+                    auto k7 = kernels3x3 + n * cin * 9 + cin * 7;
+                    auto k8 = kernels3x3 + n * cin * 9 + cin * 8;
+
+                    float sum = biases3x3[n];
+
+                    for (int c = 0; c < cin; c++)
+                    {
+                        sum +=
+                            toFloat(r0[c]) * k0[c] +
+                            toFloat(r1[c]) * k1[c] +
+                            toFloat(r2[c]) * k2[c] +
+                            toFloat(r3[c]) * k3[c] +
+                            toFloat(r4[c]) * k4[c] +
+                            toFloat(r5[c]) * k5[c] +
+                            toFloat(r6[c]) * k6[c] +
+                            toFloat(r7[c]) * k7[c] +
+                            toFloat(r8[c]) * k8[c];
+                    }
+
+                    if constexpr (!postactive3x3) sum = activeFunc3x3(sum, n);
+
+                    if constexpr (std::is_same_v<ResidualArg3x3, ResidualArg>)
+                        sum = sum * residualArg3x3.scale + static_cast<const float*>(residualArg3x3.image.ptr(j, i))[n];
+
+                    if constexpr (postactive3x3) sum = activeFunc3x3(sum, n);
+
+                    buffer[n] = sum;
+                }
+
+                for (int n = 0; n < cout; n++)
+                {
+                    auto k = kernels1x1 + n * ctemp;
+
+                    float sum = biases1x1[n];
+
+                    for (int c = 0; c < ctemp; c++) sum += buffer[c] * k[c];
+
+                    if constexpr (!postactive1x1) sum = activeFunc1x1(sum, n);
+
+                    if constexpr (std::is_same_v<ResidualArg1x1, ResidualArg>)
+                        sum = sum * residualArg1x1.scale + static_cast<const float*>(residualArg1x1.image.ptr(j, i))[n];
+
+                    if constexpr (postactive1x1) sum = activeFunc1x1(sum, n);
+
+                    out[n] = sum;
                 }
             }
         });
@@ -224,11 +395,11 @@ namespace ac::core::cpu
     {
         conv3x3_generic<float, 8, 8>(src, dst, kernels, biases, LReLU(negativeSlope));
     }
-    void conv3x3_8to8_residual_identity_generic(const Image& src, Image& dst, const float* kernels, const float* biases, const Image& id, const float scale)
+    void conv3x3_8to8_identity_residual_generic(const Image& src, Image& dst, const float* kernels, const float* biases, const Image& id, const float scale)
     {
         conv3x3_generic<float, 8, 8>(src, dst, kernels, biases, Identity(), ResidualArg{ id, scale });
     }
-    void conv3x3_8to8_residual_add_identity_generic(const Image& src, Image& dst, const float* kernels, const float* biases, const Image& id, const float scale, const Image& feat)
+    void conv3x3_8to8_identity_residual_add_generic(const Image& src, Image& dst, const float* kernels, const float* biases, const Image& id, const float scale, const Image& feat)
     {
         conv3x3_generic<float, 8, 8>(src, dst, kernels, biases, Identity(), ResidualArg{ id, scale }, ResidualArg{ feat, 1.0f });
     }
@@ -271,7 +442,7 @@ namespace ac::core::cpu
     {
         conv3x3_generic<float, 16, 16>(src, dst, kernels, biases, ReLU());
     }
-    void conv3x3_16to16_add_identity_generic(const Image& src, Image& dst, const float* kernels, const float* biases, const Image& feat)
+    void conv3x3_16to16_identity_add_generic(const Image& src, Image& dst, const float* kernels, const float* biases, const Image& feat)
     {
         conv3x3_generic<float, 16, 16>(src, dst, kernels, biases, Identity(), ResidualArg{ feat, 1.0f });
     }
@@ -314,7 +485,7 @@ namespace ac::core::cpu
     {
         conv3x3_generic<float, 32, 32>(src, dst, kernels, biases, ReLU());
     }
-    void conv3x3_32to32_add_identity_generic(const Image& src, Image& dst, const float* kernels, const float* biases, const Image& feat)
+    void conv3x3_32to32_identity_add_generic(const Image& src, Image& dst, const float* kernels, const float* biases, const Image& feat)
     {
         conv3x3_generic<float, 32, 32>(src, dst, kernels, biases, Identity(), ResidualArg{ feat, 1.0f });
     }
@@ -336,6 +507,70 @@ namespace ac::core::cpu
     void conv3x3_32to4_identity_generic(const Image& src, Image& dst, const float* kernels, const float* biases)
     {
         conv3x3_generic<float, 32, 4>(src, dst, kernels, biases, Identity());
+    }
+
+    void conv5x5_1to8_identity_generic(const Image& src, Image& dst, const float* kernels, const float* biases)
+    {
+        switch (src.type())
+        {
+        case Image::UInt8:
+            conv5x5_generic<std::uint8_t, 1, 8>(src, dst, kernels, biases, Identity());
+            break;
+        case Image::UInt16:
+            conv5x5_generic<std::uint16_t, 1, 8>(src, dst, kernels, biases, Identity());
+            break;
+        case Image::Float32:
+            conv5x5_generic<float, 1, 8>(src, dst, kernels, biases, Identity());
+            break;
+        }
+    }
+    void conv3x3_8to8_prelu_generic(const Image& src, Image& dst, const float* kernels, const float* biases, const float* alphas)
+    {
+        conv3x3_generic<float, 8, 8>(src, dst, kernels, biases, PReLU(alphas));
+    }
+    void conv3x3_8to8_prelu_conv1x1_8to8_add_prelu_generic(
+        const Image& src, Image& dst,
+        const float* kernels1, const float* biases1, const float* alphas1,
+        const float* kernels2, const float* biases2, const float* alphas2,
+        const Image& feat)
+    {
+        conv3x3_conv1x1_generic<float, 8, 8, 8, false, true>(
+            src, dst,
+            kernels1, biases1, PReLU(alphas1), nullptr,
+            kernels2, biases2, PReLU(alphas2), ResidualArg{ feat, 1.0f }
+        );
+    }
+
+    void conv5x5_1to16_identity_generic(const Image& src, Image& dst, const float* kernels, const float* biases)
+    {
+        switch (src.type())
+        {
+        case Image::UInt8:
+            conv5x5_generic<std::uint8_t, 1, 16>(src, dst, kernels, biases, Identity());
+            break;
+        case Image::UInt16:
+            conv5x5_generic<std::uint16_t, 1, 16>(src, dst, kernels, biases, Identity());
+            break;
+        case Image::Float32:
+            conv5x5_generic<float, 1, 16>(src, dst, kernels, biases, Identity());
+            break;
+        }
+    }
+    void conv3x3_16to16_prelu_generic(const Image& src, Image& dst, const float* kernels, const float* biases, const float* alphas)
+    {
+        conv3x3_generic<float, 16, 16>(src, dst, kernels, biases, PReLU(alphas));
+    }
+    void conv3x3_16to16_prelu_conv1x1_16to16_add_prelu_generic(
+        const Image& src, Image& dst,
+        const float* kernels1, const float* biases1, const float* alphas1,
+        const float* kernels2, const float* biases2, const float* alphas2,
+        const Image& feat)
+    {
+        conv3x3_conv1x1_generic<float, 16, 16, 16, false, true>(
+            src, dst,
+            kernels1, biases1, PReLU(alphas1), nullptr,
+            kernels2, biases2, PReLU(alphas2), ResidualArg{ feat, 1.0f }
+        );
     }
 
     void pixelshuffle_4to1_generic(const Image& src, Image& dst)
