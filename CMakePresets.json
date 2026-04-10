@@ -1,0 +1,52 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "shared-lib-release",
+      "displayName": "Shared Library Release",
+      "description": "Build Anime4KCPP as shared library (.so/.dll) with core features for integration",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build_shared",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/install_shared",
+        "AC_SHARED_LIB": "ON",
+        "AC_CORE_WITH_EIGEN3": "ON",
+        "AC_CORE_WITH_OPENCL": "OFF",
+        "AC_CORE_WITH_CUDA": "OFF",
+        "AC_CORE_WITH_AVX2": "ON",
+        "AC_CORE_ENABLE_FAST_MATH": "ON",
+        "AC_BUILD_BINDING_C": "ON",
+        "AC_BUILD_CLI": "OFF",
+        "AC_BUILD_GUI": "OFF",
+        "AC_BUILD_VIDEO": "OFF",
+        "AC_BUILD_FILTER_AVISYNTH": "OFF",
+        "AC_BUILD_FILTER_VAPOURSYNTH": "OFF",
+        "AC_BUILD_FILTER_DIRECTSHOW": "OFF"
+      }
+    },
+    {
+      "name": "shared-lib-full",
+      "displayName": "Shared Library (Full Features)",
+      "description": "Build with OpenCL support (requires OpenCL SDK)",
+      "inherits": "shared-lib-release",
+      "binaryDir": "${sourceDir}/build_shared_full",
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/install_shared_full",
+        "AC_CORE_WITH_OPENCL": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "shared-lib-release",
+      "configurePreset": "shared-lib-release",
+      "inheritConfigureEnvironment": true
+    },
+    {
+      "name": "shared-lib-full",
+      "configurePreset": "shared-lib-full",
+      "inheritConfigureEnvironment": true
+    }
+  ]
+}

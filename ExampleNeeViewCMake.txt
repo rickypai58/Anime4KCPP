@@ -1,0 +1,52 @@
+# Example CMakeLists.txt snippet for NeeView integration with Anime4KCPP
+# Add this to your NeeView project's CMakeLists.txt
+
+# Method 1: Using find_package (recommended if Anime4KCPP is installed system-wide)
+find_package(Anime4KCPP REQUIRED HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../Anime4KCPP/install_shared)
+
+# OR Method 2: Manual configuration (if find_package doesn't work)
+# set(ANIME4KCPP_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Anime4KCPP/install_shared/include")
+# set(ANIME4KCPP_LIBRARY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../Anime4KCPP/install_shared/lib")
+# find_library(ANIME4KCPP_LIB ac PATHS ${ANIME4KCPP_LIBRARY_DIR})
+# add_library(Anime4KCPP::Core SHARED IMPORTED)
+# set_target_properties(Anime4KCPP::Core PROPERTIES
+#     IMPORTED_LOCATION "${ANIME4KCPP_LIB}"
+#     INTERFACE_INCLUDE_DIRECTORIES "${ANIME4KCPP_INCLUDE_DIR}"
+# )
+
+# Link to your NeeView target
+target_link_libraries(neeview_core PRIVATE Anime4KCPP::Core)
+
+# Optional: For runtime library paths (Linux)
+if(NOT WIN32)
+    set_target_properties(neeview_core PROPERTIES
+        INSTALL_RPATH "$ORIGIN/../lib:${CMAKE_INSTALL_PREFIX}/lib"
+    )
+endif()
+
+# Optional: Copy the library to your output directory during build
+if(WIN32)
+    add_custom_command(TARGET neeview_core POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Anime4KCPP/install_shared/bin/ac.dll"
+            "$<TARGET_FILE_DIR:neeview_core>/ac.dll"
+        COMMENT "Copying Anime4KCPP DLL..."
+    )
+else()
+    add_custom_command(TARGET neeview_core POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/../Anime4KCPP/install_shared/lib/libac.so"
+            "$<TARGET_FILE_DIR:neeview_core>/libac.so"
+        COMMENT "Copying Anime4KCPP library..."
+    )
+endif()
+
+# Usage in code:
+# #include <AC/Core.hpp>
+# 
+# // Initialize processor
+# auto processor = std::make_unique<AC::Processor>(AC::ProcessorType::CPU);
+# 
+# // Create and upscale images
+# AC::Image image(width, height, AC::PixelType::RGB32F);
+# processor->upscale(image, 2, AC::ModelType::ACNetHD);
